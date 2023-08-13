@@ -1,0 +1,61 @@
+library(tidyr)
+library(tidyverse)
+library(ggplot2)
+library(janitor)
+library(dplyr)
+
+glimpse(Production_Crops_Livestock_Africa)
+colnames(Production_Crops_Livestock_Africa)
+str(Production_Crops_Livestock_Africa)
+item <- distinct(Production_Crops_Livestock_Africa,Item)
+print(item)
+#filtering data
+crops_to_filter <-  c("Apples","Almonds, in shell", "Apricots","Artichokes","Avocados","Aspharagus", "Bananas","Barley","Beans, dry", "Cabbages","Carrots and turnips", "Cassava, fresh", "cherries", "Chick peas,dry", "Chillies and peppers, green (Capsicum spp. and Pimenta spp.)","Chillies and peppers, dry (Capsicum spp., Pimenta spp.), raw", "Cocoa beans", "Cow peas, dry", "Coffee,greem", "Cucumbers and gherkins", "Dates", "Ginger, raw", "Gooseberries", "Grapes", "Green corn(maize)", "Green garlic", "Kenaf, and other textile bast fibres, raw or retted", "Kola nuts", "Lemons and limes", "Lectuce and chicory", "Locust beans (carobs)", "Maize (corn)", "Mangoes, guavas and mangosteens", "Melonseed", "Millet", "Mushrooms and truffles", "Mustard seed", "Yams", "Watermelons", "Wheat", "Tea Leaves", "Sweet potatoes", "Sugar cane", "Spinach", "Soya beans", "Sorghum", "Rice", "Raspberries", "Potatoes", "Plantains and cooking bananas", "Pineapples","Palm oil", "Palm kernels", "Pepper (Piper spp.), raw", "Papayas")
+A_crop_pro <- Production_Crops_Livestock_Africa[Production_Crops_Livestock_Africa$Item %in% crops_to_filter, ]
+
+head(A_crop_pro)
+#saving filtered data
+write.csv(A_crop_pro, file= "A_crop_pro.csv", row.names = FALSE)
+
+crop_pro <- read.csv("A_crop_pro.csv")
+
+str(crop_pro)
+colnames(crop_pro)
+
+#creating a long format data
+
+library(tidyr)
+crop_long <- crop_pro %>% 
+  pivot_longer(cols = starts_with("Y"),names_to = "year", values_to = "value") %>%
+  mutate(year= substring(year,2)%>%as.numeric())
+
+#saving            
+write.csv(crop_long, file= "crop_long.csv", row.names = FALSE)
+
+#cleaning 
+clean_names(crop_long)
+
+#filtering data to analyze rice production 
+rice_data <- crop_long %>%
+   filter(Item=="Rice")
+
+
+
+SQLSERVER
+
+--- average production
+select Area, 
+	 AVG(value) as Average_yeld
+from crop_long
+where Item = 'Rice' AND Element = 'Yield'
+group by Area
+
+---- changes in yield and production 
+select Area,
+	Year,
+	Element,
+	Value,
+	LAG(value) OVER (PARTITION BY Area, Element Order by year) AS previous_year,
+	(value - LAG(value) OVER(PARTITION BY Area, Element Order by year)) AS yearly_change
+from crop_long
+where Item = 'Rice' AND Element IN ('Production', 'Yield', 'Area harvested');
