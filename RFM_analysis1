@@ -1,0 +1,177 @@
+#-----install necessary packages-------
+install.packages("rfm")
+install.packages("tidyverse")
+install.packages("lubridate")
+install.packages("janitor")
+install.packages("dplyr")
+install.packages("plotly")
+# -----Load necessary libraries------
+library(rfm)
+library(tidyverse)
+library(readr)
+library(dplyr)
+library(janitor)
+library(lubridate)
+library(ggplot2)
+library(plotly)
+
+# ----Import the data-----
+raw_data <- read.csv("/cloud/project/train.csv") #Replace with the path to your CSV file
+View(raw_data)
+
+# ----view the dataset structure---
+str(raw_data) 
+
+# ---- rename columns----
+rename_mapping <- c(
+  "Date" = "order_date",
+  "OrderDate"  = "order_date",
+  "Order_Date"  = "order_date",
+  "Purchase_Date"  = "order_date",
+  "PurchaseDate"  = "order_date",
+  "CustomerID" = "customer_id",
+  "Customer_ID" = "customer_id",
+  "Quantity" = "quantity_sold",
+  "QuantitySold" = "quantity_sold",
+  "Sales_Amount" = "sales_price",
+  "Sales" = "sales_price",
+  "SalesAmount" = "sales_price",
+  "Price" = "sales_price", 
+  "UnitPrice" = "sales_price",
+  "Unit_Price" = "sales_price",
+  "Total_Price" = "sales_price",
+  "TotalPrice" = "sales_price",
+  "Item_Price" = "sales_price",
+  "ItemPrice" = "sales_price"
+)
+
+# Use rename_with to apply renaming based on the provided mapping
+cleaned_raw_data <- raw_data %>%
+  rename_with(
+    ~ ifelse(. %in% names(rename_mapping), rename_mapping[.], .),
+    everything()
+  )
+
+# ----Remove rows with missing values (NA)----
+cleaned_raw_data <- cleaned_raw_data %>%
+  na.omit()  
+
+#----clean names make all columns unique and consistent---
+clean_names(cleaned_raw_data)
+
+# --- Convert the date column to Date format-----
+cleaned_raw_data$order_date <- parse_date_time(cleaned_raw_data$order_date, orders = c("ymd", "mdy", "dmy"))
+
+#----finding latest date----
+max_date <- max(cleaned_raw_data$order_date)
+
+most_recent <- cleaned_raw_data  %>%
+  mutate(period= as.duration(max_date - order_date))
+
+#---- finding recency------
+recency <- most_recent  %>%
+  group_by(customer_id)  %>%
+  summarise(recency = min(period)*-1)
+
+#-----Finding Frequency-----#
+freq <- cleaned_raw_data %>%
+  group_by(customer_id) %>%
+  summarise(freq = n())
+
+#----- Finding Monetary values-----
+monetary <- cleaned_raw_data  %>%
+  group_by(customer_id)  %>%
+  summarise(monetary = sum(sales_price))
+
+
+#----- Binding the data-----
+customer_base <- bind_cols(recency,freq,monetary, by=c("customer_id")) %>%
+  rename(customer_id=1) %>%
+  select(customer_id,recency,freq,monetary)
+
+
+# Standardize RFM Variables and Perform K-means Clustering
+standardized_rfm <- scale(customer_base[, c("recency", "freq", "monetary")])
+
+# Create a new data frame with standardized variables
+standardized_rfm_df <- data.frame(customer_id = customer_base$customer_id, standardized_rfm)
+
+# Rename the columns
+colnames(standardized_rfm_df) <- c("customer_id",
+                                   "Standardized_Recency",
+                                   "Standardized_Frequency",
+                                   "Standardized_Monetary")
+
+# Determine the Optimal Number of Clusters (K) using the Elbow Method
+
+# Initialize an empty vector to store distortions
+distortions <- vector()
+
+# Define a range of cluster numbers (K) to test
+K <- 1:10
+
+# Calculate distortions for different K values
+for (k in K) {
+  kmeans_model <- kmeans(standardized_rfm, centers = k, nstart = 25)
+  distortions <- c(distortions, kmeans_model$tot.withinss)
+}
+
+# Plot the Elbow Method to determine the optimal K
+plot(K, distortions, type = "b", pch = 19, frame = FALSE, 
+     xlab = "Number of Clusters (K)", ylab = "Distortion",
+     main = "Elbow Method for Optimal K")
+
+# Add text labels to the plot
+text(K, distortions, labels = as.character(K), pos = 3, col = "red")
+
+# Choose the Optimal K based on the Elbow Method (e.g., K = 5)
+
+# Perform K-means Clustering with the chosen K
+chosen_K <- 5
+kmeans_model <- kmeans(standardized_rfm, centers = chosen_K)
+
+# Extract cluster assignments
+cluster_assignments <- kmeans_model$cluster
+
+# Add cluster assignments to the original data (optional)
+standardized_rfm_df$Cluster <- cluster_assignments
+
+# Extract cluster centers (optional)
+cluster_centers <- kmeans_model$centers
+
+# Print cluster centers (optional)
+print(cluster_centers)
+
+# Initialize an empty vector to store cluster labels
+cluster_labels <- character(length(cluster_assignments))
+
+# Define a mapping of cluster numbers to custom labels
+cluster_mapping <- c(
+  "High-Value Customers",
+  "Loyal Customers",
+  "Potential Loyalists",
+  "At-Risk Customers",
+  "Needs Attention"
+)
+
+# Assign the custom labels based on cluster assignments
+for (i in 1:length(cluster_assignments)) {
+  cluster_labels[i] <- cluster_mapping[cluster_assignments[i]]
+}
+
+# Add the custom cluster labels to your data frame
+standardized_rfm_df$Cluster_Label <- cluster_labels
+
+head(standardized_rfm_df,5)
+
+# Now, your data frame (standardized_rfm_df) will have an additional column "Cluster_Label"
+# that contains the custom labels for each cluster.
+
+write.csv(standardized_rfm_df, "standardized_rfm_train.csv", row.names = FALSE)
+
+
+
+
+
+
+
